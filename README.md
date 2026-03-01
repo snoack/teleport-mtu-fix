@@ -41,7 +41,7 @@ create a udev rule.
 1. Create a udev rule in `/etc/udev/rules.d/99-teleport-mtu-fix.rules`:
 
    ```
-   ACTION=="add", SUBSYSTEM=="net", KERNEL=="wg*", RUN+="/bin/sh -c 'sleep 2 && /path/to/teleport-mtu-fix.sh'"
+   ACTION=="add", SUBSYSTEM=="net", KERNEL=="wg*", RUN+="/path/to/teleport-mtu-fix.sh --wait"
    ```
 
    1. Replace the path to the script.
