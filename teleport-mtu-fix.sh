@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 set -eu
 
@@ -17,12 +17,12 @@ for arg in "$@"; do
   esac
 done
 
-deadline=$(($(date +%s) + $TIMEOUT))
+deadline=$((SECONDS + TIMEOUT))
 attempt=1
 while true; do
   table=$(ip rule | awk "/fwmark $FWMARK/ {print \$NF; exit}")
   [ -n "$table" ] && break
-  [ "$wait" = "0" ] || [ "$(date +%s)" -ge "$deadline" ] && exit 0
+  [ "$wait" = "0" ] || [ "$SECONDS" -ge "$deadline" ] && exit 0
   sleep "$(echo "d=0.1*e(1.2*l($attempt)); if(d>1) 1 else d" | bc -l)"
   attempt=$((attempt + 1))
 done
