@@ -17,33 +17,48 @@ for arg in "$@"; do
   esac
 done
 
-deadline=$((SECONDS + TIMEOUT))
-attempt=1
-while true; do
-  table=$(ip rule | awk "/fwmark $FWMARK/ {print \$NF; exit}")
-  [ -n "$table" ] && break
-  [ "$wait" = "0" ] || [ "$SECONDS" -ge "$deadline" ] && exit 0
-  sleep "$(echo "d=0.1*e(1.2*l($attempt)); if(d>1) 1 else d" | bc -l)"
-  attempt=$((attempt + 1))
-done
+if [ "$wait" = "1" ]; then
+  exec {monitor4_fd}< <(timeout $TIMEOUT ip -4 monitor rule route)
+  exec {monitor6_fd}< <(timeout $TIMEOUT ip -6 monitor rule route)
+fi
+
+ip_or_monitor() {
+  local pattern="$1"; shift
+  local awk_expr="match(\$0, $pattern, a) { print a[1]; exit }"
+  local out=$(ip "$@" | gawk "$awk_expr")
+  if [ "$wait" = "1" ] && [ -z "$out" ]; then
+    local monitor_fd_var="monitor${1:1}_fd"
+    out=$(gawk "!/Deleted/ && $awk_expr" <&"${!monitor_fd_var}")
+  fi
+  printf '%s' "$out"
+}
+
+get_fwmark_table() {
+  ip_or_monitor "/fwmark $FWMARK lookup (\\S+)/" $1 rule
+}
 
 get_default_route() {
-  ip $1 route show table "$table" | awk '$1=="default" {print; exit}'
+  [ -n "$2" ] || return 0
+  ip_or_monitor "/(default .* table $2.*)/" $1 route show table all
 }
 
-clamp_default_route_mtu() {
-  d=$(get_default_route $1)
-  [ -n "$d" ] && ip $1 route replace $d mtu "$MTU" table "$table"
+clamp_route_mtu() {
+  [ -n "$2" ] || return 0
+  ip $1 route replace $2 mtu "$MTU"
 }
+
+table4=$(get_fwmark_table -4)
+table6=$(get_fwmark_table -6)
+route4=$(get_default_route -4 "$table4")
+route6=$(get_default_route -6 "$table6")
 
 if [ "$lan_only" = "1" ]; then
-  d=$(get_default_route -4)
-  if [ -n "$d" ]; then
-    ip -4 route del default table "$table"
-    ip -4 route replace "$LAN_SUBNET" $(echo "$d" | sed 's/^default//') mtu "$MTU" table "$table"
+  if [ -n "$route4" ]; then
+    ip -4 route del default table "$table4"
+    ip -4 route replace "$LAN_SUBNET" $(echo "$route4" | sed 's/^default//') mtu "$MTU"
   fi
-  ip -6 route del default table "$table" 2>/dev/null || true
+  ip -6 route del default table "$table6" 2>/dev/null || true
 else
-  clamp_default_route_mtu -4
-  clamp_default_route_mtu -6
+  clamp_route_mtu -4 "$route4"
+  clamp_route_mtu -6 "$route6"
 fi
